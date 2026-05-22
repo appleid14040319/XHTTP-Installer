@@ -1,61 +1,84 @@
-#!/usr/bin/env bash
-# =============================================================
-#  XHTTP Installer — Bootstrap
-#  Copyright (C) 2025 avaco_cloud
-#  Repository: https://github.com/avacocloud/XHTTP-Installer
-#  Licensed under GPL-3.0. See LICENSE file.
-# =============================================================
-# Usage: bash <(curl -fsSL https://raw.githubusercontent.com/avacocloud/XHTTP-Installer/main/install.sh)
+#!/bin/bash
+# NikVPN XHTTP Installer — Bootstrap
+# Copyright (C) 2026 nikvpn-iran
+# Based on XHTTP-Installer by avacocloud (GPL-3.0)
+# License: GPL-3.0-only
+# Repo: https://github.com/nikvpn-iran/NikVPN-xhttp-installer
+set -e
 
-set -euo pipefail
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-readonly AVC_BUILD_ID="avc-7f3a92e1-2025-avacocloud"
-export AVC_BUILD_ID
+info()  { echo -e "${GREEN}[✔]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
+err()   { echo -e "${RED}[✘]${NC} $*"; exit 1; }
 
-REPO_URL="https://github.com/avacocloud/XHTTP-Installer.git"
-TARGET_DIR="/root/XHTTP-Installer"
-BRANCH="main"
-
-C_CYAN="\033[1;36m"; C_GREEN="\033[1;32m"; C_YELLOW="\033[1;33m"
-C_RED="\033[1;31m"; C_RESET="\033[0m"
-
-info() { echo -e "${C_CYAN}➜${C_RESET} $*"; }
-ok()   { echo -e "${C_GREEN}✔${C_RESET} $*"; }
-warn() { echo -e "${C_YELLOW}⚠${C_RESET} $*"; }
-fail() { echo -e "${C_RED}✘${C_RESET} $*"; exit 1; }
-
-# ── must run as root ─────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-  fail "Run as root (use: sudo bash <(curl ...))"
+    err "This script must be run as root."
 fi
 
-# ── ensure git is installed ──────────────────────────────
+info "NikVPN XHTTP Installer — Bootstrap"
+info "Cloning repository..."
+
+# Install git if missing
 if ! command -v git &>/dev/null; then
-  info "Installing git..."
-  apt-get update -qq
-  apt-get install -y -qq git
-  ok "git installed"
+    warn "git not found. Installing..."
+    apt-get update -qq && apt-get install -y -qq git
 fi
 
-# ── clone or update repo ─────────────────────────────────
-if [[ -d "$TARGET_DIR/.git" ]]; then
-  warn "Existing install found at $TARGET_DIR — updating..."
-  git -C "$TARGET_DIR" fetch --depth=1 origin "$BRANCH"
-  git -C "$TARGET_DIR" reset --hard "origin/$BRANCH"
-  ok "Repo updated"
+REPO_DIR="/root/nikvpn-xhttp-installer"
+if [[ -d "$REPO_DIR" ]]; then
+    warn "Directory $REPO_DIR already exists. Updating..."
+    cd "$REPO_DIR"
+    git pull origin main || git pull origin master || true
 else
-  if [[ -d "$TARGET_DIR" ]]; then
-    warn "Directory exists but is not a git repo — removing..."
-    rm -rf "$TARGET_DIR"
-  fi
-  info "Cloning $REPO_URL..."
-  git clone --depth=1 --branch "$BRANCH" "$REPO_URL" "$TARGET_DIR"
-  ok "Repo cloned to $TARGET_DIR"
+    git clone https://github.com/nikvpn-iran/NikVPN-xhttp-installer.git "$REPO_DIR"
 fi
 
-# ── run the installer ────────────────────────────────────
-cd "$TARGET_DIR"
+cd "$REPO_DIR"
 chmod +x Deploy-Ubuntu.sh
-info "Launching Deploy-Ubuntu.sh..."
+info "Starting main installer..."
+./Deploy-Ubuntu.sh
+
+# ============================================================
+# Ask to install HiddifyManager panel after main installation
+# ============================================================
 echo ""
-exec bash Deploy-Ubuntu.sh "$@"
+echo -e "${YELLOW}══════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}XHTTP installation completed!${NC}"
+echo -e "${YELLOW}══════════════════════════════════════════════════════════════${NC}"
+echo ""
+
+read -p "$(echo -e "${YELLOW}Do you want to install HiddifyManager panel for user management? (supports XHTTP/Vercel) [y/N]: ${NC}")" -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    info "Installing HiddifyManager panel..."
+    
+    apt-get update -qq
+    apt-get install -y -qq curl wget ufw socat
+    
+    bash <(curl -sSL https://raw.githubusercontent.com/hiddify/hiddify-manager/main/install.sh)
+    
+    if systemctl is-active --quiet hiddify-panel; then
+        info "HiddifyManager installed successfully!"
+        info "Access panel at: http://$(curl -s ifconfig.me):8080"
+        echo ""
+        echo -e "${GREEN}⚠️ IMPORTANT:${NC}"
+        info "To use with your Vercel XHTTP config, add your Vercel domain as 'Relay Domain' in panel settings."
+        info "Default login credentials will be shown after installation completes."
+    else
+        warn "HiddifyManager installation may have failed. Check manually."
+        info "You can install later with: bash <(curl -sSL https://raw.githubusercontent.com/hiddify/hiddify-manager/main/install.sh)"
+    fi
+else
+    info "Skipping HiddifyManager installation. You can install later with:"
+    echo "  bash <(curl -sSL https://raw.githubusercontent.com/hiddify/hiddify-manager/main/install.sh)"
+fi
+
+info "All done! Type 'xhttp' to manage your XHTTP config."
+if [[ $REPLY =~ ^[Yy]$ ]] && systemctl is-active --quiet hiddify-panel; then
+    echo ""
+    info "HiddifyManager is running. Access it via browser to configure users, traffic limits, and IP restrictions."
+fi
